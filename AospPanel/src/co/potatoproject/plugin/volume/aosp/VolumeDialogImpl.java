@@ -50,6 +50,7 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.content.res.TypedArray;
+import android.database.ContentObserver;
 import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
@@ -63,6 +64,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.os.SystemClock;
+import android.os.UserHandle;
 import android.os.VibrationEffect;
 import android.provider.Settings;
 import android.provider.Settings.Global;
@@ -187,6 +189,37 @@ public class VolumeDialogImpl implements VolumeDialog {
 
     private boolean mLeftVolumeRocker;
 
+    private SettingsObserver settingsObserver;
+    private boolean isVoiceShowing = false;
+    private boolean isBTSCOShowing = false;
+
+    private class SettingsObserver extends ContentObserver {
+        SettingsObserver(Handler handler) {
+            super(handler);
+        }
+
+        void observe() {
+            mContext.getContentResolver().registerContentObserver(Settings.System.getUriFor(Settings.System.AUDIO_PANEL_VIEW_VOICE), false, this, UserHandle.USER_ALL);
+            mContext.getContentResolver().registerContentObserver(Settings.System.getUriFor(Settings.System.AUDIO_PANEL_VIEW_BT_SCO), false, this, UserHandle.USER_ALL);
+            update();
+        }
+
+        void unobserve() {
+            mContext.getContentResolver().unregisterContentObserver(this);
+        }
+
+        @Override
+        public void onChange(boolean selfChange) {
+            update();
+        }
+
+        public void update() {
+             isVoiceShowing = Settings.System.getIntForUser(mContext.getContentResolver(), Settings.System.AUDIO_PANEL_VIEW_VOICE, 0, UserHandle.USER_CURRENT) == 1;
+             isBTSCOShowing = Settings.System.getIntForUser(mContext.getContentResolver(), Settings.System.AUDIO_PANEL_VIEW_BT_SCO, 0, UserHandle.USER_CURRENT) == 1;
+             //updateRowsH(getActiveRow());
+        }
+    }
+
     public VolumeDialogImpl() {}
 
     @Override
@@ -203,6 +236,8 @@ public class VolumeDialogImpl implements VolumeDialog {
         mHasSeenODICaptionsTooltip =
                 Prefs.getBoolean(sysuiContext, Prefs.Key.HAS_SEEN_ODI_CAPTIONS_TOOLTIP, false);
         mLeftVolumeRocker = mSysUIContext.getResources().getBoolean(mSysUIR.bool("config_audioPanelOnLeftSide"));
+        settingsObserver = new SettingsObserver(mHandler);
+        settingsObserver.observe();
     }
 
     public void init(int windowType, Callback callback) {
@@ -218,6 +253,7 @@ public class VolumeDialogImpl implements VolumeDialog {
     public void destroy() {
         mController.removeCallback(mControllerCallbackH);
         mHandler.removeCallbacksAndMessages(null);
+        settingsObserver.unobserve();
     }
 
     private void initDialog() {
@@ -939,6 +975,13 @@ public class VolumeDialogImpl implements VolumeDialog {
     }
 
     private boolean shouldBeVisibleH(VolumeRow row, VolumeRow activeRow) {
+        if (row.stream == AudioManager.STREAM_VOICE_CALL && isVoiceShowing){
+            return true;
+        }
+        if (row.stream == AudioManager.STREAM_BLUETOOTH_SCO && isBTSCOShowing){
+            return true;
+        }
+
         boolean isActive = row.stream == activeRow.stream;
 
         if (isActive) {
